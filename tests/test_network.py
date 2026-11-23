@@ -169,14 +169,18 @@ class NetworkIntegrationTest(unittest.TestCase):
             ),
         )
 
-    def test_leave_sends_final_snapshot_and_empty_room_list(self) -> None:
+    def test_leave_keeps_room_until_last_player_and_empty_room_list(self) -> None:
         first, second, room_id = self.start_room()
         observer, _ = self.client("observer")
         first.send("leave_room")
         first.until("left")
-        snapshot = second.until("snapshot", lambda data: data.get("phase") == "finished")["data"]
-        self.assertEqual({p["username"] for p in snapshot["players"]}, {"bob"})
-        self.assertTrue(snapshot["result"])
+        # 只剩 bob 一人，按新规则对局继续、不提前结束；等待不含 alice 的新快照
+        snapshot = second.until(
+            "snapshot",
+            lambda data: data.get("phase") == "playing"
+            and {p["username"] for p in data.get("players", [])} == {"bob"},
+        )["data"]
+        self.assertFalse(snapshot.get("result"))
 
         second.send("leave_room")
         second.until("left")

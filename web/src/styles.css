@@ -202,10 +202,12 @@ h3 { margin-bottom: 4px; }
 .weapon-detail p { color: var(--muted); line-height: 1.6; font-size: 13px; }
 .control-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; font-size: 12px; }
 .control-grid span { font: 800 10px var(--mono); }
-.result-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(243,242,237,0.82); backdrop-filter: blur(3px); }
-.result-card { width: min(470px, 90%); background: #fff; border: 2px solid var(--ink); padding: 28px; box-shadow: 12px 12px 0 rgba(0,0,0,0.15); }
+.result-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(243,242,237,0.82); backdrop-filter: blur(3px); z-index: 20; overflow: auto; padding: 20px; }
+.result-card { width: min(470px, 92%); max-height: 92%; overflow: auto; background: #fff; border: 2px solid var(--ink); padding: 28px; box-shadow: 12px 12px 0 rgba(0,0,0,0.15); }
+.result-list { max-height: 46vh; overflow: auto; }
 .result-row { display: grid; grid-template-columns: 42px 1fr auto auto; gap: 10px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .result-row.winner { background: var(--soft); margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
+.result-row.eliminated b { color: #9b2b2b; }
 .result-row strong { font: 800 17px var(--mono); }
 .result-actions { display: grid; gap: 8px; margin-top: 18px; }
 .result-actions .button.full { margin-top: 0; }

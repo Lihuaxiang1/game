@@ -130,11 +130,11 @@ class WebIntegrationTest(unittest.TestCase):
             snap = self.until(third, "snapshot", lambda data: any(p["username"] == "midc" for p in data.get("players", [])))
             self.assertIn("midc", {p["username"] for p in snap["players"]})
 
-    def test_owner_leave_sends_final_snapshot_to_remaining(self) -> None:
+    def test_owner_leave_keeps_room_alive_for_remaining(self) -> None:
         with self.client.websocket_connect("/ws") as first, self.client.websocket_connect("/ws") as second:
             self.register(first, "leavea")
             self.register(second, "leaveb")
-            self.send(first, "create_room", name="离房结算")
+            self.send(first, "create_room", name="离房不结束")
             room_id = self.until(first, "joined")["room_id"]
             self.send(second, "join_room", room_id=room_id)
             self.until(second, "joined")
@@ -144,13 +144,18 @@ class WebIntegrationTest(unittest.TestCase):
             self.until(first, "snapshot", lambda data: data.get("phase") == "playing")
             self.until(second, "snapshot", lambda data: data.get("phase") == "playing")
 
-            # 房主退出后房间只剩一人，remove_user 会直接结束本局；
-            # 此时必须补发最终快照，否则剩余客户端看不到 finished/result。
+            # 房主退出后房间只剩一人，按新规则对局继续、不提前结束，房主转移给剩余玩家。
             self.send(first, "leave_room")
             self.until(first, "left")
-            snapshot = self.until(second, "snapshot", lambda data: data.get("phase") == "finished")
-            self.assertEqual({p["username"] for p in snapshot["players"]}, {"leaveb"})
-            self.assertTrue(snapshot["result"])
+            room_state = self.until(
+                second,
+                "room_state",
+                lambda data: data["room"].get("owner") == "leaveb",
+            )
+            self.assertEqual(room_state["room"]["owner"], "leaveb")
+            playing = self.until(second, "snapshot", lambda data: data.get("phase") == "playing")
+            self.assertEqual({p["username"] for p in playing["players"]}, {"leaveb"})
+            self.assertFalse(playing.get("result"))
 
     def test_dissolve_updates_non_member_room_list(self) -> None:
         with self.client.websocket_connect("/ws") as first, self.client.websocket_connect("/ws") as second:

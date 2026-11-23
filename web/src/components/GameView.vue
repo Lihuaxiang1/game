@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { leaveRoom, rejoinRoom, sendInput, showLobby, state, toggleReady } from '../store'
+import { leaveRoom, rejoinRoom, sendInput, showLobby, startRoom, state, toggleReady } from '../store'
 import { PHASES, WEAPONS } from '../gameMeta'
 import { drawScene } from '../renderer'
 import ChatPanel from './ChatPanel.vue'
@@ -40,6 +40,10 @@ const remaining = computed(() => Math.max(0, Math.ceil(state.snapshot?.remaining
 const weaponOrder = Object.keys(WEAPONS)
 const isEliminated = computed(() =>
   Boolean(!own.value && state.snapshot?.eliminated?.includes(state.username)))
+const isOwner = computed(() => state.room?.owner === state.username)
+const allReady = computed(() =>
+  (state.room?.player_list?.length || 0) >= 2 &&
+  state.room?.player_list?.every((p) => p.ready))
 
 function resizeCanvas() {
   if (!canvas.value || !canvasWrap.value) return
@@ -207,7 +211,7 @@ onBeforeUnmount(() => {
             <button class="fs-exit" @click="toggleFullscreen">退出全屏 Esc</button>
           </div>
           <div v-if="state.reconnecting" class="reconnect-banner">连接中断，正在自动恢复对局…</div>
-          <div v-if="isEliminated" class="elimination-banner">
+          <div v-if="isEliminated && state.snapshot?.phase !== 'finished'" class="elimination-banner">
             <b>你已被淘汰，本局积分已清零</b>
             <p>死亡达到 {{ state.snapshot?.death_limit ?? 5 }} 次。可重新参战或返回房间面板。</p>
             <div>
@@ -222,16 +226,27 @@ onBeforeUnmount(() => {
                 <p class="eyebrow">MISSION REPORT</p>
                 <h2>对局结算</h2>
                 <p class="muted">{{ state.result[0].reason }}</p>
-                <div v-for="item in state.result" :key="item.username" class="result-row" :class="{ winner: item.won }">
-                  <span>#{{ item.rank }}</span><b>{{ item.username }}</b>
-                  <small>{{ item.kills }} 击杀 / {{ item.deaths }} 阵亡</small>
-                  <strong>{{ item.score_delta > 0 ? '+' : '' }}{{ item.score_delta }}</strong>
+                <div class="result-list">
+                  <div v-for="item in state.result" :key="item.username" class="result-row" :class="{ winner: item.won, eliminated: item.eliminated }">
+                    <span>#{{ item.rank }}</span><b>{{ item.username }}</b>
+                    <small>{{ item.kills }} 击杀 / {{ item.deaths }} 阵亡{{ item.eliminated ? ' · 已淘汰' : '' }}</small>
+                    <strong>{{ item.score_delta > 0 ? '+' : '' }}{{ item.score_delta }}</strong>
+                  </div>
                 </div>
-                <div v-if="isSpectator" class="result-actions">
-                  <button class="button primary full" @click="rejoinRoom">{{ isEliminated ? '重新参战' : '加入战斗' }}</button>
+                <!-- 被淘汰者（当前为观战身份）：可重新参战或返回大厅 -->
+                <div v-if="isEliminated || isSpectator" class="result-actions">
+                  <button class="button primary full" @click="rejoinRoom">重新参战</button>
+                  <button class="button ghost full" @click="showLobby(true)">返回房间面板</button>
+                </div>
+                <!-- 仍在场的普通玩家：准备下一局 -->
+                <button v-else-if="!isOwner" class="button primary full" @click="toggleReady">准备下一局</button>
+                <!-- 房主：全员准备后可直接开始，否则提示等待 -->
+                <div v-else class="result-actions">
+                  <button class="button primary full" :disabled="!allReady" @click="startRoom">
+                    {{ allReady ? '开始新一局' : '等待其他玩家准备…' }}
+                  </button>
                   <button class="button ghost full" @click="showLobby(true)">房间面板</button>
                 </div>
-                <button v-else class="button primary full" @click="toggleReady">准备下一局</button>
               </section>
             </div>
           </Transition>

@@ -243,6 +243,32 @@ class RoomTest(unittest.TestCase):
         self.assertEqual(self.room.players["alice"].kills, 0)
         self.assertIsNone(self.room.last_result)
 
+    def test_elimination_does_not_end_round_single_player_continues(self) -> None:
+        from arena.game import DEATH_LIMIT
+
+        self.start_two_players()
+        bob = self.room.players["bob"]
+        bob.invulnerable_until = 0
+        for _ in range(DEATH_LIMIT):
+            bob.health = 1
+            self.room._damage(bob, "alice", 100, self.clock.now)
+            bob = self.room.players.get("bob")
+            if bob is None:
+                break
+        # bob 被淘汰移到观战，但对局不结束、alice 仍可战斗
+        self.assertIn("bob", self.room.spectators)
+        self.assertNotIn("bob", self.room.players)
+        self.assertEqual(self.room.phase, "playing")
+        self.assertIn("alice", self.room.players)
+        # 只剩一名可战斗玩家，update 也不应提前结束
+        self.assertIsNone(self.room.update(self.clock.now + 0.1, 0.1))
+        self.assertEqual(self.room.phase, "playing")
+        # 只有到达计时上限才结算
+        self.clock.advance(self.room.round_seconds + 1)
+        result = self.room.update(self.clock.now, 0.1)
+        self.assertIsNotNone(result)
+        self.assertEqual(self.room.phase, "finished")
+
     def test_same_seed_generates_identical_map(self) -> None:
         first = generate_map(20261118)
         second = generate_map(20261118)

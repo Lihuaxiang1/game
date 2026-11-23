@@ -24,29 +24,64 @@ export function drawScene(canvas, minimap, snapshot, username, view, now) {
   const players = snapshot.players || []
   const own = players.find((player) => player.username === username)
   const follow = own || players[0]
+
+  // 实体插值：服务器只下发 30Hz 快照，这里在两帧之间按时间补间到 60fps，消除移动/子弹抖动。
+  if (!view.interp) view.interp = new Map()
   if (snapshot.tick !== view.lastTick) {
+    const receiveAt = now
+    const gap = view.lastTick < 0 ? 33 : clamp(receiveAt - view.tickAt, 20, 80)
+    view.tickAt = receiveAt
     for (const player of players) {
-      const previous = view.previous[player.username] || [player.x, player.y]
-      const distance = Math.hypot(player.x - previous[0], player.y - previous[1])
-      view.moving[player.username] = distance > 0.03 && player.connected && player.health > 0
+      const key = 'p:' + player.username
+      const prev = view.interp.get(key)
+      if (!prev || Math.hypot(player.x - prev.tx, player.y - prev.ty) > 220) {
+        view.interp.set(key, { fx: player.x, fy: player.y, tx: player.x, ty: player.y, start: receiveAt, dur: gap })
+      } else {
+        view.interp.set(key, { fx: prev.tx, fy: prev.ty, tx: player.x, ty: player.y, start: receiveAt, dur: gap })
+      }
+      view.moving[player.username] =
+        Math.hypot(player.x - (view.previous[player.username]?.[0] ?? player.x), player.y - (view.previous[player.username]?.[1] ?? player.y)) > 0.03 &&
+        player.connected && player.health > 0
       view.previous[player.username] = [player.x, player.y]
+    }
+    for (const bullet of snapshot.bullets || []) {
+      const key = 'b:' + bullet.id
+      const prev = view.interp.get(key)
+      if (!prev) view.interp.set(key, { fx: bullet.x, fy: bullet.y, tx: bullet.x, ty: bullet.y, start: receiveAt, dur: gap })
+      else view.interp.set(key, { fx: prev.tx, fy: prev.ty, tx: bullet.x, ty: bullet.y, start: receiveAt, dur: gap })
     }
     view.lastTick = snapshot.tick
   }
+  // 清理本帧不存在的实体，避免 Map 无限增长。
+  const aliveKeys = new Set([
+    ...players.map((p) => 'p:' + p.username),
+    ...(snapshot.bullets || []).map((b) => 'b:' + b.id),
+  ])
+  for (const key of view.interp.keys()) if (!aliveKeys.has(key)) view.interp.delete(key)
+
+  const renderPos = (key, x, y) => {
+    const state = view.interp.get(key)
+    if (!state) return { x, y }
+    const alpha = clamp((now - state.start) / state.dur, 0, 1)
+    return { x: state.fx + (state.tx - state.fx) * alpha, y: state.fy + (state.ty - state.fy) * alpha }
+  }
+  view.renderPos = renderPos
+
   for (const player of players) {
     const phase = view.phases[player.username] || 0
     view.phases[player.username] = view.moving[player.username] ? phase + dt * 11 : 0
   }
 
   if (follow) {
-    const targetX = clamp(follow.x - viewW / 2, 0, Math.max(0, snapshot.width - viewW))
-    const targetY = clamp(follow.y - viewH / 2, 0, Math.max(0, snapshot.height - viewH))
+    const fp = renderPos('p:' + follow.username, follow.x, follow.y)
+    const targetX = clamp(fp.x - viewW / 2, 0, Math.max(0, snapshot.width - viewW))
+    const targetY = clamp(fp.y - viewH / 2, 0, Math.max(0, snapshot.height - viewH))
     if (!view.cameraReady) {
       view.cameraX = targetX
       view.cameraY = targetY
       view.cameraReady = true
     } else {
-      const factor = 1 - Math.exp(-dt * 12)
+      const factor = 1 - Math.exp(-dt * 14)
       view.cameraX += (targetX - view.cameraX) * factor
       view.cameraY += (targetY - view.cameraY) * factor
     }
@@ -81,8 +116,9 @@ export function drawScene(canvas, minimap, snapshot, username, view, now) {
   }
 
   for (const bullet of snapshot.bullets || []) {
-    const x = sx(bullet.x)
-    const y = sy(bullet.y)
+    const p = renderPos('b:' + bullet.id, bullet.x, bullet.y)
+    const x = sx(p.x)
+    const y = sy(p.y)
     const speed = Math.hypot(bullet.vx, bullet.vy) || 1
     const trail = bullet.weapon === 'sniper' ? 18 : 7
     ctx.strokeStyle = '#000'
@@ -172,8 +208,9 @@ function drawZoneLabel(ctx, x, y, text, viewW, viewH) {
 }
 
 function drawStickman(ctx, player, username, view, viewW, viewH) {
-  const x = player.x - view.cameraX
-  const y = player.y - view.cameraY
+  const rp = view.renderPos ? view.renderPos('p:' + player.username, player.x, player.y) : { x: player.x, y: player.y }
+  const x = rp.x - view.cameraX
+  const y = rp.y - view.cameraY
   if (x < -60 || y < -70 || x > viewW + 60 || y > viewH + 60) return
   const own = player.username === username
   ctx.strokeStyle = player.connected ? '#050505' : '#888'

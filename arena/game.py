@@ -356,15 +356,12 @@ class Room:
         self.spectators.discard(username)
         self.eliminated.discard(username)
         self.eliminated_stats.pop(username, None)
-        result: list[dict[str, int | str]] | None = None
         if username in self.players:
             del self.players[username]
-            if self.phase == "playing" and len(self.players) < MIN_PLAYERS:
-                result = self.finish_round("可战斗玩家不足，对局提前结束")
         # 房主可能是观战者（玩家全部离开后转移而来），因此不能只在删除玩家时处理。
         if self.owner not in self.usernames():
             self.owner = next(iter(self.players), next(iter(self.spectators), ""))
-        return result
+        return None
 
 
     def set_connected(self, username: str, connected: bool) -> None:
@@ -479,9 +476,7 @@ class Room:
         result = self._update_bullets(now, dt)
         if result is not None:
             return result
-        # 可战斗玩家不足两人（其余已被淘汰移出席位）时立即结束；断线保留席位不算离房。
-        if len(self.players) < MIN_PLAYERS:
-            return self.finish_round("仅剩一名可战斗玩家，对局结束")
+        # 淘汰只会把个人移到观战，即使只剩一名可战斗玩家，对局也继续到计时结束。
         if now >= self.round_end:
             return self.finish_round("时间到")
         return None
@@ -506,7 +501,8 @@ class Room:
         # 清理该玩家仍在飞行的子弹，避免淘汰后继续造成伤害。
         for bullet_id in [bid for bid, bullet in self.bullets.items() if bullet.owner == player.username]:
             self.bullets.pop(bullet_id, None)
-        return len(self.players) < MIN_PLAYERS
+        # 淘汰只影响该玩家本人，对局继续到计时结束。
+        return True
 
 
     def _move_player(self, player: Player, dx: float, dy: float) -> None:
@@ -597,7 +593,7 @@ class Room:
                     break
                 victim = self._bullet_hit_player(bullet)
                 if victim is not None:
-                    ended = self._damage(
+                    self._damage(
                         victim,
                         bullet.owner,
                         bullet.damage,
@@ -607,10 +603,8 @@ class Room:
                         bullet.vy / speed,
                     )
                     if victim.username not in self.players:
-                        # 受害者已被淘汰并移出席位，本颗子弹结束。
+                        # 受害者达到死亡上限被淘汰、移出席位，本颗子弹结束，对局继续。
                         self.bullets.pop(bullet_id, None)
-                        if ended:
-                            return self.finish_round("仅剩一名可战斗玩家，对局结束")
                         break
                     bullet.hit_users.add(victim.username)
                     if bullet.remaining_hits > 1:
@@ -646,7 +640,7 @@ class Room:
         direction_x: float = 0.0,
         direction_y: float = 0.0,
     ) -> bool:
-        """返回是否因本次伤害触发了对局结束（淘汰到不足两人）。"""
+        """返回本次伤害是否导致受害者被淘汰（达到死亡上限）。"""
         victim.health = max(0, victim.health - damage)
         if victim.health > 0:
             if knockback:
