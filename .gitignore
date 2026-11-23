@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+data/
+artifacts/
+deploy/
+.coverage
+.venv/
+web/node_modules/

@@ -1,0 +1,26 @@
+services:
+  blackline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: blackline-arena:latest
+    container_name: blackline
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - blackline-data:/app/data
+    environment:
+      TZ: Asia/Shanghai
+    mem_limit: 768m
+    # 2 核机器给应用留出 1.5 核，剩余给 Docker/系统。
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  blackline-data:
